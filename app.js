@@ -568,13 +568,19 @@ function bindUI() {
 /* ===================== Pasang aplikasi (PWA) ===================== */
 let deferredPrompt = null;
 window.addEventListener('beforeinstallprompt', (e) => { e.preventDefault(); deferredPrompt = e; $('#installBtn').hidden = false; });
-window.addEventListener('appinstalled', () => { $('#installBtn').hidden = true; toast('✅ Amajing Cuaca terpasang!'); });
-$('#installBtn').onclick = async () => {
+const isInstalled = () => matchMedia('(display-mode: standalone)').matches || navigator.standalone === true;
+// Tombol bawah selalu ada (kecuali sudah terpasang); tanpa prompt otomatis → arahkan ke panduan
+if (isInstalled()) $('#installBottom').hidden = true;
+window.addEventListener('appinstalled', () => { $('#installBtn').hidden = true; $('#installBottom').hidden = true; toast('✅ Amajing Cuaca terpasang!'); });
+async function doInstall() {
   if (!deferredPrompt) { location.href = 'panduan.html#pasang'; return; }
   deferredPrompt.prompt();
-  await deferredPrompt.userChoice.catch(() => null);
+  const choice = await deferredPrompt.userChoice.catch(() => null);
   deferredPrompt = null; $('#installBtn').hidden = true;
-};
+  if (choice && choice.outcome === 'accepted') $('#installBottom').hidden = true;
+}
+$('#installBtn').onclick = doInstall;
+$('#installBtn2').onclick = doInstall;
 if ('serviceWorker' in navigator && window.isSecureContext) {
   navigator.serviceWorker.register('sw.js').catch(() => { /* mode offline tidak tersedia */ });
 }
