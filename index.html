@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Amajing Cuaca — Prakiraan Cuaca 7 Hari</title>
+  <meta name="description" content="Prakiraan cuaca 7 hari, hujan per 15 menit, angin, kelembapan, dan kualitas udara (ISPU) di lokasimu. Dari Amajing Labs.">
+  <meta name="theme-color" content="#1f2023">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Amajing Cuaca">
+  <link rel="manifest" href="manifest.json">
+  <link rel="icon" href="brand/ikon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="brand/apple-touch-icon.png">
+  <link rel="stylesheet" href="style.css">
+  <script src="compat.js" defer></script>
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+
+<header class="top">
+  <div class="brandbar">
+    <img src="brand/ikon.svg" alt="" class="appicon">
+    <span class="appname">Amajing Cuaca</span>
+    <button id="installBtn" class="pill" hidden>⬇️ Pasang</button>
+  </div>
+  <button id="locBtn" class="locbar" aria-label="Ganti lokasi">
+    <span class="locdot" id="locDot"></span>
+    <span class="locname" id="locName">Mencari lokasi…</span>
+    <span class="locedit">Ganti ▾</span>
+  </button>
+  <div class="updated">
+    <span id="updatedTxt">—</span>
+    <button id="refreshBtn" class="linkbtn">Perbarui ⟳</button>
+  </div>
+</header>
+
+<main id="app">
+  <div id="loading" class="loading"><div class="spin"></div>Memuat data cuaca…</div>
+  <div id="errorBox" class="card error" hidden></div>
+
+  <div id="content" hidden>
+    <!-- Hujan dalam beberapa jam ke depan -->
+    <section class="card" id="nowcast"></section>
+
+    <!-- Sekarang -->
+    <section class="card hero" id="hero"></section>
+
+    <!-- Prakiraan 7 hari -->
+    <section class="card">
+      <h2 class="sec">Prakiraan 7 hari</h2>
+      <div id="days" class="days"></div>
+    </section>
+
+    <!-- Detail per jam untuk hari terpilih -->
+    <section class="card">
+      <h2 class="sec" id="hourTitle">Per jam</h2>
+      <div class="hscroll" data-sync id="hourly"></div>
+    </section>
+
+    <section class="card acc-wrap">
+      <details class="acc" id="accRain" open>
+        <summary><span class="ico">🌧️</span><b>Curah hujan</b><span class="sumval" id="sumRain"></span></summary>
+        <div class="accbody" id="bodyRain"></div>
+      </details>
+      <details class="acc" id="accWind" open>
+        <summary><span class="ico">💨</span><b>Angin</b><span class="sumval" id="sumWind"></span></summary>
+        <div class="accbody" id="bodyWind"></div>
+      </details>
+      <details class="acc" id="accHum" open>
+        <summary><span class="ico">💧</span><b>Kelembapan</b><span class="sumval" id="sumHum"></span></summary>
+        <div class="accbody" id="bodyHum"></div>
+      </details>
+      <details class="acc" id="accAir" open>
+        <summary><span class="ico">🍃</span><b>Kualitas udara</b><span class="sumval" id="sumAir"></span></summary>
+        <div class="accbody" id="bodyAir"></div>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2 class="sec">Info lain hari ini</h2>
+      <div class="grid4" id="extra"></div>
+    </section>
+  </div>
+
+  <section class="card compat-card">
+    <div>
+      <b>🔍 Cek kompatibilitas HP-mu — gratis</b>
+      <p>Pastikan semua fitur (GPS, mode offline, pasang aplikasi) berfungsi di HP atau laptopmu.</p>
+    </div>
+    <button id="compatBtn" class="pill strong">Cek sekarang</button>
+  </section>
+
+  <p class="source">Data: <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo</a> (cuaca &amp; kualitas udara, model global) · Nama lokasi: <a href="https://www.bigdatacloud.com/" target="_blank" rel="noopener">BigDataCloud</a>. Prakiraan bisa berbeda dari kondisi nyata.</p>
+</main>
+
+<footer class="foot">
+  Dibuat oleh<img class="logo-inline" src="brand/logo-kecil-gelap.svg" alt="Amajing Labs">
+  <span class="dot">·</span>
+  <a href="https://forms.gle/fZAtNMCwKqhQhgpKA" target="_blank" rel="noopener">💬 Kirim masukan</a>
+  <span class="dot">·</span>
+  <a href="panduan.html">📖 Panduan</a>
+  <span class="dot">·</span>
+  <a href="https://saweria.co/amajinglabs" target="_blank" rel="noopener">☕ Traktir kopi</a>
+</footer>
+
+<!-- Lembar pilih lokasi -->
+<div class="sheet-bg" id="sheetBg" hidden>
+  <div class="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheet-head">
+      <h3 id="sheetTitle">Pilih lokasi</h3>
+      <button class="x" id="sheetClose" aria-label="Tutup">✕</button>
+    </div>
+    <p class="sheet-msg" id="sheetMsg" hidden></p>
+    <button class="gpsbtn" id="gpsBtn">📍 Gunakan lokasi saya sekarang (GPS)</button>
+    <div class="search">
+      <input id="searchInput" type="search" placeholder="Cari kota / kecamatan / desa…" autocomplete="off" enterkeyhint="search">
+    </div>
+    <ul class="plist" id="searchResults"></ul>
+    <h4 class="ptitle">⭐ Favorit</h4>
+    <ul class="plist" id="favList"></ul>
+    <h4 class="ptitle">🕘 Pernah dikunjungi</h4>
+    <ul class="plist" id="histList"></ul>
+  </div>
+</div>
+
+<div class="toast" id="toast" hidden></div>
+</body>
+</html>

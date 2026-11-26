@@ -1,0 +1,20 @@
+{
+  "id": "./?app=amajing-cuaca",
+  "name": "Amajing Cuaca",
+  "short_name": "Cuaca",
+  "description": "Prakiraan cuaca 7 hari, hujan per 15 menit, angin, kelembapan, dan kualitas udara (ISPU) di lokasimu. Dari Amajing Labs.",
+  "lang": "id",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#1f2023",
+  "theme_color": "#1f2023",
+  "categories": ["weather", "utilities"],
+  "icons": [
+    { "src": "./brand/ikon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "./brand/ikon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "./brand/ikon-maskable-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "./brand/ikon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
