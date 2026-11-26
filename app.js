@@ -131,7 +131,8 @@ function getGPS() {
     navigator.geolocation.getCurrentPosition(
       (p) => res({ lat: +p.coords.latitude.toFixed(4), lon: +p.coords.longitude.toFixed(4) }),
       (e) => rej(e),
-      { enableHighAccuracy: false, timeout: 15000, maximumAge: 10 * 60 * 1000 },
+      // Akurasi jaringan (cepat, cukup untuk cuaca); posisi maks. 2 menit lalu boleh dipakai ulang
+      { enableHighAccuracy: false, timeout: 12000, maximumAge: 2 * 60 * 1000 },
     );
   });
 }
@@ -175,23 +176,41 @@ async function getJSON(url) {
 }
 const cacheKey = (p) => `cuaca.data.${p.lat},${p.lon}`;
 
+// Strategi cepat: tampilkan data terakhir yang tersimpan seketika, lalu perbarui di latar belakang.
+// Cuaca ditampilkan begitu datang; kualitas udara menyusul tanpa menunggu.
+let loadSeq = 0;
+function setBusy(on) { state.busy = on; renderUpdated(); }
 async function loadWeather(place, { force = false } = {}) {
+  if (!force && state.busy && state.place && state.place.id === place.id) return; // sudah sedang dimuat
+  const seq = ++loadSeq;
   state.place = place;
+  LS.set('cuaca.lastId', place.id);
   renderLocBar();
   const cached = LS.get(cacheKey(place), null);
+  const hadView = !!state.wx;
   if (cached) { Object.assign(state, { wx: cached.wx, aq: cached.aq, fetchedAt: cached.at }); render(); }
-  if (cached && !force && Date.now() - cached.at < 15 * 60 * 1000) return;
-  if (!cached) showLoading(true);
+  if (cached && !force && Date.now() - cached.at < 10 * 60 * 1000) return;
+  if (!cached && !hadView) showLoading(true);
+  setBusy(true);
+  const wxP = getJSON(WX_URL(place.lat, place.lon));
+  const aqP = getJSON(AQ_URL(place.lat, place.lon)).catch(() => null);
   try {
-    const [wx, aq] = await Promise.all([getJSON(WX_URL(place.lat, place.lon)), getJSON(AQ_URL(place.lat, place.lon)).catch(() => null)]);
-    if (state.place !== place) return; // lokasi sudah diganti saat menunggu
-    Object.assign(state, { wx, aq, fetchedAt: Date.now() });
-    LS.set(cacheKey(place), { wx, aq, at: state.fetchedAt });
+    const wx = await wxP;
+    if (seq !== loadSeq) return; // lokasi sudah diganti saat menunggu
+    const keepAq = cached ? cached.aq : null;
+    Object.assign(state, { wx, aq: keepAq, fetchedAt: Date.now() });
     render();
+    const aq = await aqP;
+    if (seq !== loadSeq) return;
+    if (aq) { state.aq = aq; renderAir(airRef(), state.day === 0); }
+    LS.set(cacheKey(place), { wx, aq: state.aq, at: state.fetchedAt });
   } catch (e) {
-    if (cached) toast(navigator.onLine ? 'Gagal memperbarui — menampilkan data terakhir.' : 'Sedang offline — menampilkan data terakhir.');
+    if (seq !== loadSeq) return;
+    if (cached || hadView) toast(navigator.onLine ? 'Gagal memperbarui — menampilkan data terakhir.' : 'Sedang offline — menampilkan data terakhir.');
     else showError(navigator.onLine ? 'Gagal mengambil data cuaca. ' + esc(e.message) : 'Kamu sedang offline dan belum ada data tersimpan untuk lokasi ini.');
-  } finally { showLoading(false); }
+  } finally {
+    if (seq === loadSeq) { showLoading(false); setBusy(false); renderUpdated(); }
+  }
 }
 
 /* ===================== Render ===================== */
@@ -212,10 +231,17 @@ function renderLocBar() {
   $('#locDot').classList.toggle('gps', state.active?.mode === 'gps');
 }
 function renderUpdated() {
-  if (!state.fetchedAt) return;
-  const d = new Date(state.fetchedAt);
-  const mins = Math.round((Date.now() - state.fetchedAt) / 60000);
-  $('#updatedTxt').textContent = `Diperbarui ${String(d.getHours()).padStart(2, '0')}.${String(d.getMinutes()).padStart(2, '0')}` + (mins >= 60 ? ` (${Math.floor(mins / 60)} jam lalu)` : '');
+  const u = $('#updatedTxt');
+  let txt = state.busy && !state.fetchedAt ? 'Memuat cuaca' : '—';
+  if (state.fetchedAt) {
+    const d = new Date(state.fetchedAt);
+    const mins = Math.round((Date.now() - state.fetchedAt) / 60000);
+    txt = `Diperbarui ${String(d.getHours()).padStart(2, '0')}.${String(d.getMinutes()).padStart(2, '0')}` + (mins >= 60 ? ` (${Math.floor(mins / 60)} jam lalu)` : '');
+  }
+  if (state.locating) txt = state.fetchedAt ? txt + ' · mencari lokasi' : 'Mencari lokasimu';
+  else if (state.busy && state.fetchedAt) txt += ' · memperbarui';
+  u.textContent = txt;
+  if (state.busy || state.locating) u.insertAdjacentHTML('beforeend', '<span class="busy"></span>');
 }
 
 function render() {
@@ -328,6 +354,7 @@ function dayHours() {
   state.wx.hourly.time.forEach((t, i) => { if (t.startsWith(date)) idx.push(i); });
   return idx;
 }
+const airRef = () => { const { s } = hourRange(); return state.day === 0 ? s : dayHours()[12] ?? s; };
 const colLabel = (i, first) => (state.day === 0 && i === first ? 'Skrg' : hhmm(state.wx.hourly.time[i]));
 
 function renderDayDetail() {
@@ -347,7 +374,7 @@ function renderDayDetail() {
 
   const dh = dayHours();
   const sum = (arr) => dh.reduce((a, i) => a + (arr[i] || 0), 0);
-  const ref = isToday ? s : dh[12] ?? s; // jam acuan untuk ringkasan
+  const ref = airRef(); // jam acuan untuk ringkasan
 
   // Curah hujan
   const amt = state.wx.daily.precipitation_sum[state.day] ?? sum(h.precipitation);
@@ -477,30 +504,41 @@ function renderPlaceLists() {
   $('#favList').innerHTML = favs.map((p) => placeItem(p)).join('') || '<li class="empty">Belum ada. Ketuk ☆ untuk menyimpan tempat yang sering kamu kunjungi (rumah, kantor, kampung halaman).</li>';
   $('#histList').innerHTML = hist.map((p) => placeItem(p)).join('') || '<li class="empty">Tempat yang pernah kamu lihat akan muncul di sini.</li>';
 }
-function selectPlace(p, mode = 'place') {
+function selectPlace(p, mode = 'place', { keepSheet = false, force = false } = {}) {
   const saved = upsertPlace(p);
   savePlaces();
   state.active = { mode, id: saved.id };
   LS.set('cuaca.active', state.active);
-  state.day = 0;
-  closeSheet();
-  loadWeather(saved, { force: false });
+  if (!state.place || state.place.id !== saved.id) state.day = 0;
+  if (!keepSheet) closeSheet();
+  loadWeather(saved, { force });
+  return saved;
 }
-async function useGPS({ silent = false } = {}) {
-  if (!silent) toast('Mencari lokasimu…');
+async function useGPS({ silent = false, force = false } = {}) {
+  state.locating = true; renderUpdated();
   try {
     const pos = await getGPS();
+    LS.set('cuaca.gpsOK', true);
     const near = state.places.find((q) => haversine(q, pos) < 2);
-    const meta = near ? { name: near.name, admin: near.admin, country: near.country } : await reverseName(pos.lat, pos.lon);
-    selectPlace({ ...pos, ...meta }, 'gps');
+    // Jangan tunggu nama daerah: ambil cuaca dulu, nama menyusul
+    const p = selectPlace({ ...pos, ...(near ? {} : { name: 'Lokasi saya', admin: '', country: '' }) }, 'gps', { keepSheet: silent, force });
+    if (!near) {
+      reverseName(pos.lat, pos.lon).then((meta) => {
+        if (!p.fav) Object.assign(p, meta);
+        savePlaces(); renderLocBar();
+      });
+    }
     return true;
   } catch (e) {
+    if (e && e.code === 1) LS.set('cuaca.gpsOK', false);
     const msg = e.code === 1 ? 'Izin lokasi ditolak. Izinkan lokasi di setelan browser, atau cari lokasimu secara manual di bawah.'
       : e.code === 'nogeo' ? 'Browser ini tidak mendukung GPS. Cari lokasimu secara manual.'
         : 'Lokasi tidak bisa ditemukan (GPS mati / sinyal lemah). Nyalakan GPS atau cari manual.';
     if (silent) return false;
     openSheet(msg);
     return false;
+  } finally {
+    state.locating = false; renderUpdated();
   }
 }
 
@@ -511,7 +549,7 @@ function bindUI() {
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape') closeSheet(); });
   $('#gpsBtn').onclick = () => useGPS();
   $('#refreshBtn').onclick = async () => {
-    if (state.active?.mode === 'gps') { const ok = await useGPS({ silent: true }); if (ok) { loadWeather(state.place, { force: true }); return; } }
+    if (state.active?.mode === 'gps' && await useGPS({ silent: true, force: true })) return;
     if (state.place) { toast('Memperbarui…'); loadWeather(state.place, { force: true }); }
   };
   $('#days').onclick = (e) => {
@@ -586,20 +624,55 @@ if ('serviceWorker' in navigator && window.isSecureContext) {
 }
 
 /* ===================== Mulai ===================== */
+async function gpsPermission() {
+  if (!('geolocation' in navigator)) return 'unsupported';
+  try { return (await navigator.permissions.query({ name: 'geolocation' })).state; } catch { return 'unknown'; }
+}
+const JAKARTA = { name: 'Jakarta', admin: 'DKI Jakarta', country: 'Indonesia', lat: -6.2088, lon: 106.8456 };
+function fallbackPlace(msg) {
+  if (!state.place) selectPlace(JAKARTA, 'place', { keepSheet: true });
+  if (msg) openSheet(msg);
+}
+function askPermission() {
+  return new Promise((resolve) => {
+    $('#permBg').hidden = false;
+    $('#permAllow').onclick = async () => {
+      $('#permBg').hidden = true; LS.set('cuaca.gpsAsked', true);
+      const ok = await useGPS({ silent: true });
+      if (!ok) fallbackPlace('Lokasi belum bisa dipakai (izin ditolak atau GPS mati). Kami tampilkan Jakarta dulu — cari kotamu atau coba lagi “Gunakan lokasi saya”.');
+      resolve();
+    };
+    $('#permManual').onclick = () => {
+      $('#permBg').hidden = true; LS.set('cuaca.gpsAsked', true);
+      fallbackPlace('Cari kota, kecamatan, atau desamu.');
+      resolve();
+    };
+  });
+}
+
 async function start() {
   bindUI();
-  const act = state.active;
-  const saved = act && state.places.find((p) => p.id === act.id);
-  if (saved) {
-    loadWeather(saved);
-    if (act.mode === 'gps') useGPS({ silent: true }); // ikuti posisi HP terkini tanpa mengganggu
+  // 1) Tampilkan seketika lokasi & data terakhir yang tersimpan (walau sudah lama)
+  const lastId = LS.get('cuaca.lastId', null) || state.active?.id;
+  const last = lastId && state.places.find((p) => p.id === lastId);
+  if (last) loadWeather(last);
+
+  // 2) Lalu ikuti posisi GPS terbaru bila izin sudah diberikan
+  const perm = await gpsPermission();
+  const optedIn = LS.get('cuaca.gpsOK', false);
+  if (perm === 'granted' || (perm !== 'denied' && perm !== 'unsupported' && optedIn)) {
+    const ok = await useGPS({ silent: true });
+    if (!ok && !last) fallbackPlace('Lokasimu belum terdeteksi (GPS mati / sinyal lemah). Kami tampilkan Jakarta dulu — cari kotamu atau coba lagi.');
     return;
   }
-  const ok = await useGPS({ silent: true });
-  if (!ok) {
-    selectPlace({ name: 'Jakarta', admin: 'DKI Jakarta', country: 'Indonesia', lat: -6.2088, lon: 106.8456 });
-    openSheet('Lokasimu belum terdeteksi, jadi kami tampilkan Jakarta dulu. Ketuk “Gunakan lokasi saya” atau cari kotamu.');
+  if (perm === 'prompt' || perm === 'unknown') {
+    if (!LS.get('cuaca.gpsAsked', false) || !last) { await askPermission(); return; }
+    return; // pernah memilih manual: tetap pakai lokasi terakhir
   }
+  // Izin ditolak / tidak didukung
+  if (!last) fallbackPlace(perm === 'denied'
+    ? 'Izin lokasi diblokir. Izinkan lokasi di setelan browser (ikon gembok di samping alamat) atau cari kotamu di bawah.'
+    : 'Browser ini tidak mendukung GPS. Cari kotamu di bawah.');
 }
 window.__amajingCuacaReady = true;
 start();

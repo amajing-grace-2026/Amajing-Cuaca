@@ -1,5 +1,5 @@
 // Amajing Cuaca service worker — ganti CACHE_NAME setiap rilis
-const CACHE_NAME = 'amajing-cuaca-v2';
+const CACHE_NAME = 'amajing-cuaca-v3';
 const SHELL = [
   './', './index.html', './style.css', './app.js', './compat.js', './panduan.html', './manifest.json',
   './brand/ikon.svg', './brand/ikon-192.png', './brand/ikon-512.png',
@@ -15,17 +15,17 @@ self.addEventListener('activate', (e) => {
   self.clients.claim();
 });
 
-// File aplikasi: ambil versi terbaru dari jaringan, pakai cache saat offline.
-// Data cuaca (domain lain) tidak lewat sini — disimpan oleh aplikasi sendiri.
+// File aplikasi: langsung dari cache (buka instan), sambil mengambil versi terbaru di latar
+// untuk pembukaan berikutnya. Data cuaca (domain lain) tidak lewat sini — disimpan oleh aplikasi.
 self.addEventListener('fetch', (e) => {
   const url = new URL(e.request.url);
   if (e.request.method !== 'GET' || url.origin !== self.location.origin) return;
-  e.respondWith(
-    fetch(e.request)
-      .then((res) => {
-        if (res.ok) { const copy = res.clone(); caches.open(CACHE_NAME).then((c) => c.put(e.request, copy)); }
-        return res;
-      })
-      .catch(() => caches.match(e.request, { ignoreSearch: true }).then((r) => r || caches.match('./index.html'))),
-  );
+  e.respondWith(caches.open(CACHE_NAME).then(async (cache) => {
+    const hit = await cache.match(e.request, { ignoreSearch: true });
+    const net = fetch(e.request)
+      .then((res) => { if (res.ok) cache.put(e.request, res.clone()); return res; })
+      .catch(() => hit || cache.match('./index.html'));
+    if (hit) { e.waitUntil(net.catch(() => null)); return hit; }
+    return net;
+  }));
 });
