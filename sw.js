@@ -1,5 +1,5 @@
 // Amajing Cuaca service worker — ganti CACHE_NAME setiap rilis
-const CACHE_NAME = 'amajing-cuaca-v3';
+const CACHE_NAME = 'amajing-cuaca-v4';
 const SHELL = [
   './', './index.html', './style.css', './app.js', './compat.js', './panduan.html', './manifest.json',
   './brand/ikon.svg', './brand/ikon-192.png', './brand/ikon-512.png',
